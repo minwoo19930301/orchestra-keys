@@ -7,8 +7,11 @@
 - 8 instruments: piano, trumpet, violin, organ, flute, saxophone, guitar, xylophone
 - Web Audio 기반 실시간 합성
 - 데스크톱 키보드 단축키와 터치 입력 지원
+- 터치 슬라이드 글리산도 지원 (모바일)
+- Sustain 토글 / All Notes Off(긴급 정지) 지원
 - 모바일 세로 화면에서 가로 모드 전환 유도
 - 모바일 가로 화면 전용 레이아웃
+- 악기/볼륨/옥타브/서스테인 설정 로컬 저장
 
 ## Run
 

@@ -19,6 +19,8 @@ const KEY_BINDINGS = [
   ";",
   "'",
 ];
+const STORAGE_KEY = "stage-keys-prefs-v2";
+const MAX_POLYPHONY = 28;
 
 const KEY_EVENT_MAP = new Map(
   KEY_BINDINGS.map((label, index) => [
@@ -225,6 +227,9 @@ const state = {
   volume: 0.74,
   audioReady: false,
   portraitMode: false,
+  sustainEnabled: false,
+  landscapeAttempted: false,
+  notes: [],
 };
 
 const ui = {
@@ -244,10 +249,13 @@ const ui = {
   octaveUp: document.querySelector("#octave-up-btn"),
   octaveRange: document.querySelector("#octave-range-label"),
   portraitOverlay: document.querySelector("#portrait-overlay"),
+  sustainToggle: document.querySelector("#sustain-toggle-btn"),
+  panicButton: document.querySelector("#panic-btn"),
 };
 
 class AudioEngine {
-  constructor() {
+  constructor(maxPolyphony) {
+    this.maxPolyphony = maxPolyphony;
     this.context = null;
     this.masterGain = null;
     this.outputCompressor = null;
@@ -255,12 +263,21 @@ class AudioEngine {
     this.reverbInput = null;
     this.waveCache = new Map();
     this.activeVoices = new Map();
+    this.voiceOrder = [];
   }
 
   async ensureReady() {
     if (!this.context) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      this.context = new AudioCtx();
+      if (!AudioCtx) {
+        throw new Error("Web Audio를 지원하지 않는 브라우저입니다.");
+      }
+
+      try {
+        this.context = new AudioCtx({ latencyHint: "interactive" });
+      } catch {
+        this.context = new AudioCtx();
+      }
       this.outputCompressor = this.context.createDynamicsCompressor();
       this.outputCompressor.threshold.value = -18;
       this.outputCompressor.knee.value = 20;
@@ -301,6 +318,13 @@ class AudioEngine {
 
     if (!this.context) {
       return;
+    }
+
+    if (this.activeVoices.size >= this.maxPolyphony) {
+      const oldestSourceId = this.voiceOrder[0];
+      if (oldestSourceId) {
+        this.stopVoice(oldestSourceId);
+      }
     }
 
     const now = this.context.currentTime;
@@ -369,10 +393,10 @@ class AudioEngine {
       voiceGain,
       filter,
       reverbSend,
-      note,
       released: false,
       preset,
     });
+    this.voiceOrder.push(sourceId);
   }
 
   stopVoice(sourceId) {
@@ -403,6 +427,7 @@ class AudioEngine {
     }, (voice.preset.release + 0.08) * 1000);
 
     this.activeVoices.delete(sourceId);
+    this.voiceOrder = this.voiceOrder.filter((id) => id !== sourceId);
   }
 
   stopAll() {
@@ -445,10 +470,12 @@ class AudioEngine {
   }
 }
 
-const audioEngine = new AudioEngine();
+const audioEngine = new AudioEngine(MAX_POLYPHONY);
 const keyElementMap = new Map();
+const noteByLabelMap = new Map();
 const pressedSources = new Map();
 const activeNotes = new Map();
+const pendingSustainSources = new Set();
 
 function getInstrument() {
   return INSTRUMENTS.find((instrument) => instrument.id === state.instrumentId) ?? INSTRUMENTS[0];
@@ -463,12 +490,52 @@ function midiToLabel(midi) {
   return `${NOTE_NAMES[midi % 12]}${octave}`;
 }
 
+function loadPreferences() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+    const prefs = JSON.parse(raw);
+    if (INSTRUMENTS.some((instrument) => instrument.id === prefs.instrumentId)) {
+      state.instrumentId = prefs.instrumentId;
+    }
+    const baseOctave = Number(prefs.baseOctave);
+    if (Number.isFinite(baseOctave)) {
+      state.baseOctave = Math.min(5, Math.max(2, Math.round(baseOctave)));
+    }
+    const volume = Number(prefs.volume);
+    if (Number.isFinite(volume)) {
+      state.volume = Math.min(1, Math.max(0, volume));
+    }
+    state.sustainEnabled = Boolean(prefs.sustainEnabled);
+  } catch (error) {
+    console.warn("Failed to load preferences:", error);
+  }
+}
+
+function savePreferences() {
+  try {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        instrumentId: state.instrumentId,
+        baseOctave: state.baseOctave,
+        volume: state.volume,
+        sustainEnabled: state.sustainEnabled,
+      }),
+    );
+  } catch (error) {
+    console.warn("Failed to save preferences:", error);
+  }
+}
+
 function buildNoteRange() {
   const startMidi = (state.baseOctave + 1) * 12;
   const notes = [];
   let whiteIndex = 0;
 
-  for (let offset = 0; offset < 18; offset += 1) {
+  for (let offset = 0; offset < KEY_BINDINGS.length; offset += 1) {
     const midi = startMidi + offset;
     const pitch = midi % 12;
     const isBlack = NOTE_NAMES[pitch].includes("#");
@@ -484,37 +551,68 @@ function buildNoteRange() {
       note.whiteIndex = whiteIndex;
       whiteIndex += 1;
     } else {
-      note.blackLeft = whiteIndex / 11;
+      note.blackOffset = whiteIndex;
     }
 
     notes.push(note);
   }
 
+  const whiteCount = notes.filter((note) => !note.isBlack).length;
+  notes.forEach((note) => {
+    if (!note.isBlack) {
+      return;
+    }
+    note.blackLeft = note.blackOffset / whiteCount;
+    delete note.blackOffset;
+  });
   return notes;
+}
+
+function refreshNoteRange() {
+  state.notes = buildNoteRange();
+  noteByLabelMap.clear();
+  state.notes.forEach((note) => {
+    noteByLabelMap.set(note.label, note);
+  });
 }
 
 function renderInstrumentCards() {
   ui.instrumentGrid.innerHTML = "";
 
-  INSTRUMENTS.forEach((instrument) => {
+  INSTRUMENTS.forEach((instrument, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "instrument-card";
-    button.setAttribute("role", "tab");
+    button.setAttribute("role", "radio");
     button.dataset.instrument = instrument.id;
-    button.dataset.accent = instrument.accent;
-    button.setAttribute("aria-selected", instrument.id === state.instrumentId ? "true" : "false");
+    button.setAttribute("aria-checked", instrument.id === state.instrumentId ? "true" : "false");
+    button.tabIndex = instrument.id === state.instrumentId ? 0 : -1;
     button.innerHTML = `
       <span class="instrument-card__korean">${instrument.korean}</span>
       <strong class="instrument-card__english">${instrument.english}</strong>
       <span class="instrument-card__detail">${instrument.detail}</span>
     `;
 
-    button.addEventListener("click", async () => {
-      state.instrumentId = instrument.id;
-      syncInstrumentState();
+    button.addEventListener("click", () => {
+      selectInstrumentByIndex(index);
       if (state.audioReady) {
         playPreview();
+      }
+    });
+
+    button.addEventListener("keydown", (event) => {
+      if (event.code !== "ArrowRight" && event.code !== "ArrowDown" && event.code !== "ArrowLeft" && event.code !== "ArrowUp") {
+        return;
+      }
+      event.preventDefault();
+      const delta = event.code === "ArrowRight" || event.code === "ArrowDown" ? 1 : -1;
+      const nextIndex = (index + delta + INSTRUMENTS.length) % INSTRUMENTS.length;
+      selectInstrumentByIndex(nextIndex);
+      const nextButton = ui.instrumentGrid.querySelector(
+        `[data-instrument="${INSTRUMENTS[nextIndex].id}"]`,
+      );
+      if (nextButton instanceof HTMLButtonElement) {
+        nextButton.focus();
       }
     });
 
@@ -522,8 +620,57 @@ function renderInstrumentCards() {
   });
 }
 
+function selectInstrumentByIndex(index) {
+  const instrument = INSTRUMENTS[index];
+  if (!instrument) {
+    return;
+  }
+  state.instrumentId = instrument.id;
+  syncInstrumentState();
+  savePreferences();
+}
+
+function pointerSourceId(pointerId) {
+  return `pointer-${pointerId}`;
+}
+
+function getNoteFromPointer(clientX, clientY) {
+  const element = document.elementFromPoint(clientX, clientY);
+  if (!(element instanceof Element)) {
+    return null;
+  }
+  const key = element.closest(".key");
+  if (!(key instanceof HTMLElement)) {
+    return null;
+  }
+  return noteByLabelMap.get(key.dataset.note || "") ?? null;
+}
+
+function handlePointerMove(event) {
+  const sourceId = pointerSourceId(event.pointerId);
+  if (!pressedSources.has(sourceId)) {
+    return;
+  }
+
+  const hoveredNote = getNoteFromPointer(event.clientX, event.clientY);
+  if (!hoveredNote) {
+    return;
+  }
+
+  const currentNote = pressedSources.get(sourceId);
+  if (!currentNote || currentNote.label === hoveredNote.label) {
+    return;
+  }
+
+  startPlaying(sourceId, hoveredNote);
+}
+
+function handlePointerStop(event) {
+  stopPlaying(pointerSourceId(event.pointerId));
+}
+
 function renderKeyboard() {
-  const notes = buildNoteRange();
+  const notes = state.notes;
   const whiteCount = notes.filter((note) => !note.isBlack).length;
   document.documentElement.style.setProperty("--white-count", String(whiteCount));
   ui.keyboard.innerHTML = "";
@@ -549,25 +696,21 @@ function renderKeyboard() {
 
     key.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      const sourceId = `pointer-${event.pointerId}`;
+      const sourceId = pointerSourceId(event.pointerId);
       try {
         key.setPointerCapture(event.pointerId);
       } catch {
-        // Some mobile browsers can reject capture when the pointer is already released.
+        // Some mobile browsers can reject capture when pointer release timing is tight.
       }
       activateAudioIfNeeded().then(() => {
         startPlaying(sourceId, note);
       });
     });
 
-    const pointerStop = (event) => {
-      const sourceId = `pointer-${event.pointerId}`;
-      stopPlaying(sourceId);
-    };
-
-    key.addEventListener("pointerup", pointerStop);
-    key.addEventListener("pointercancel", pointerStop);
-    key.addEventListener("lostpointercapture", pointerStop);
+    key.addEventListener("pointermove", handlePointerMove);
+    key.addEventListener("pointerup", handlePointerStop);
+    key.addEventListener("pointercancel", handlePointerStop);
+    key.addEventListener("lostpointercapture", handlePointerStop);
 
     ui.keyboard.append(key);
     keyElementMap.set(note.label, key);
@@ -581,19 +724,21 @@ function renderKeyboard() {
 function syncInstrumentState() {
   const instrument = getInstrument();
   document.documentElement.style.setProperty("--accent", instrument.accent);
-  document.documentElement.style.setProperty(
-    "--accent-soft",
-    `${instrument.accent}33`,
-  );
+  document.documentElement.style.setProperty("--accent-soft", `${instrument.accent}33`);
   ui.instrumentName.textContent = instrument.english;
   ui.instrumentDescription.textContent = instrument.detail;
 
   document.querySelectorAll(".instrument-card").forEach((button) => {
-    button.setAttribute(
-      "aria-selected",
-      button.dataset.instrument === instrument.id ? "true" : "false",
-    );
+    const selected = button.dataset.instrument === instrument.id;
+    button.setAttribute("aria-checked", selected ? "true" : "false");
+    button.tabIndex = selected ? 0 : -1;
   });
+}
+
+function syncSustainState() {
+  ui.sustainToggle.setAttribute("aria-pressed", state.sustainEnabled ? "true" : "false");
+  ui.sustainToggle.textContent = state.sustainEnabled ? "Sustain ON" : "Sustain OFF";
+  ui.sustainToggle.classList.toggle("is-on", state.sustainEnabled);
 }
 
 function noteDisplayText() {
@@ -606,9 +751,13 @@ function noteDisplayText() {
 
 function updateNowPlaying() {
   ui.activeNoteLabel.textContent = noteDisplayText();
-  ui.activeNoteDetail.textContent = activeNotes.size
-    ? `${getInstrument().english} · ${activeNotes.size} note${activeNotes.size > 1 ? "s" : ""}`
-    : "A / W / S / E 또는 터치로 연주할 수 있습니다.";
+  if (activeNotes.size) {
+    ui.activeNoteDetail.textContent = `${getInstrument().english} · ${activeNotes.size} note${activeNotes.size > 1 ? "s" : ""}${state.sustainEnabled ? " · Sustain ON" : ""}`;
+  } else if (state.sustainEnabled) {
+    ui.activeNoteDetail.textContent = "Sustain ON · 음을 누르면 길게 유지됩니다.";
+  } else {
+    ui.activeNoteDetail.textContent = "A / W / S / E 또는 터치로 연주할 수 있습니다.";
+  }
 }
 
 function markKey(noteLabel, active) {
@@ -618,7 +767,30 @@ function markKey(noteLabel, active) {
   }
 }
 
+function noteReferencedElsewhere(noteLabel, excludedSourceId = null) {
+  for (const [sourceId, note] of pressedSources.entries()) {
+    if (sourceId === excludedSourceId) {
+      continue;
+    }
+    if (note.label === noteLabel) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function startPlaying(sourceId, note) {
+  if (!note) {
+    return;
+  }
+
+  const previous = pressedSources.get(sourceId);
+  if (previous && previous.label !== note.label && !noteReferencedElsewhere(previous.label, sourceId)) {
+    activeNotes.delete(previous.label);
+    markKey(previous.label, false);
+  }
+
+  pendingSustainSources.delete(sourceId);
   pressedSources.set(sourceId, note);
   audioEngine.startVoice(sourceId, note);
   activeNotes.set(note.label, note);
@@ -626,40 +798,91 @@ function startPlaying(sourceId, note) {
   updateNowPlaying();
 }
 
-function stopPlaying(sourceId) {
+function forceStopSource(sourceId) {
+  const note = pressedSources.get(sourceId);
+  if (!note) {
+    return;
+  }
+  audioEngine.stopVoice(sourceId);
+  pendingSustainSources.delete(sourceId);
+  pressedSources.delete(sourceId);
+  if (!noteReferencedElsewhere(note.label)) {
+    activeNotes.delete(note.label);
+    markKey(note.label, false);
+  }
+}
+
+function stopPlaying(sourceId, { force = false } = {}) {
   const note = pressedSources.get(sourceId);
   if (!note) {
     return;
   }
 
-  audioEngine.stopVoice(sourceId);
-  pressedSources.delete(sourceId);
-
-  const sameNoteStillPressed = [...pressedSources.values()].some(
-    (pressedNote) => pressedNote.label === note.label,
-  );
-
-  if (!sameNoteStillPressed) {
-    activeNotes.delete(note.label);
-    markKey(note.label, false);
+  if (state.sustainEnabled && !force) {
+    pendingSustainSources.add(sourceId);
+    updateNowPlaying();
+    return;
   }
 
+  forceStopSource(sourceId);
   updateNowPlaying();
 }
 
-async function activateAudioIfNeeded() {
+function flushSustainSources() {
+  const targets = [...pendingSustainSources];
+  targets.forEach((sourceId) => forceStopSource(sourceId));
+  updateNowPlaying();
+}
+
+function panicAllNotes(statusMessage = "모든 음을 정지했습니다.") {
+  audioEngine.stopAll();
+  pendingSustainSources.clear();
+  pressedSources.clear();
+  activeNotes.clear();
+  keyElementMap.forEach((_, noteLabel) => markKey(noteLabel, false));
+  if (statusMessage) {
+    ui.audioStatus.textContent = statusMessage;
+  }
+  updateNowPlaying();
+}
+
+function setSustainEnabled(enabled) {
+  if (state.sustainEnabled === enabled) {
+    return;
+  }
+  state.sustainEnabled = enabled;
+  syncSustainState();
+  if (!enabled) {
+    flushSustainSources();
+  } else {
+    updateNowPlaying();
+  }
+  savePreferences();
+}
+
+function toggleSustain() {
+  setSustainEnabled(!state.sustainEnabled);
+}
+
+async function activateAudioIfNeeded({ attemptLandscape = true } = {}) {
   await audioEngine.ensureReady();
   state.audioReady = true;
   ui.audioButton.textContent = "오디오 준비 완료";
-  ui.audioStatus.textContent = "오디오 엔진이 활성화되었습니다.";
-  await requestLandscapeMode();
+  ui.audioStatus.textContent = `오디오 엔진 활성화 · 최대 ${MAX_POLYPHONY}음 동시 재생`;
+  if (attemptLandscape) {
+    await requestLandscapeMode();
+  }
 }
 
-async function requestLandscapeMode() {
+async function requestLandscapeMode({ force = false } = {}) {
   const isMobile = window.matchMedia("(max-width: 900px)").matches;
   if (!isMobile) {
     return;
   }
+  if (state.landscapeAttempted && !force) {
+    return;
+  }
+  state.landscapeAttempted = true;
 
   try {
     if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
@@ -679,10 +902,24 @@ async function requestLandscapeMode() {
 }
 
 function playPreview() {
-  const previewNote = buildNoteRange()[5];
+  const previewNote = state.notes[5];
+  if (!previewNote) {
+    return;
+  }
   const previewId = "preview";
   startPlaying(previewId, previewNote);
-  window.setTimeout(() => stopPlaying(previewId), 320);
+  window.setTimeout(() => stopPlaying(previewId, { force: true }), 320);
+}
+
+function isTypingBlockedByInput() {
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement)) {
+    return false;
+  }
+  if (activeElement instanceof HTMLInputElement) {
+    return true;
+  }
+  return activeElement.isContentEditable;
 }
 
 function handleKeyboardDown(event) {
@@ -690,11 +927,19 @@ function handleKeyboardDown(event) {
     return;
   }
 
-  const activeElement = document.activeElement;
-  if (
-    activeElement instanceof HTMLInputElement ||
-    activeElement instanceof HTMLButtonElement
-  ) {
+  if (event.code === "Space") {
+    event.preventDefault();
+    toggleSustain();
+    return;
+  }
+
+  if (event.code === "Escape") {
+    event.preventDefault();
+    panicAllNotes("긴급 정지: 모든 음을 정지했습니다.");
+    return;
+  }
+
+  if (isTypingBlockedByInput()) {
     return;
   }
 
@@ -703,8 +948,7 @@ function handleKeyboardDown(event) {
     return;
   }
 
-  const notes = buildNoteRange();
-  const note = notes[noteIndex];
+  const note = state.notes[noteIndex];
   if (!note) {
     return;
   }
@@ -720,15 +964,17 @@ function handleKeyboardUp(event) {
   if (noteIndex == null) {
     return;
   }
-
   event.preventDefault();
   stopPlaying(`keyboard-${event.code}`);
 }
 
-function updateVolume() {
+function updateVolume({ persist = false } = {}) {
   const volume = Number(ui.volumeSlider.value) / 100;
   ui.volumeValue.textContent = `${ui.volumeSlider.value}%`;
   audioEngine.setVolume(volume);
+  if (persist) {
+    savePreferences();
+  }
 }
 
 function shiftOctave(direction) {
@@ -737,12 +983,12 @@ function shiftOctave(direction) {
     return;
   }
 
-  audioEngine.stopAll();
-  pressedSources.clear();
-  activeNotes.clear();
+  panicAllNotes("");
   state.baseOctave = nextOctave;
+  refreshNoteRange();
   renderKeyboard();
   updateNowPlaying();
+  savePreferences();
 }
 
 function syncOrientationState() {
@@ -752,30 +998,48 @@ function syncOrientationState() {
 }
 
 function wireEvents() {
-  ui.audioButton.addEventListener("click", activateAudioIfNeeded);
-  ui.landscapeButton.addEventListener("click", requestLandscapeMode);
-  ui.overlayLandscapeButton.addEventListener("click", requestLandscapeMode);
-  ui.volumeSlider.addEventListener("input", updateVolume);
+  ui.audioButton.addEventListener("click", () => {
+    activateAudioIfNeeded();
+  });
+  ui.landscapeButton.addEventListener("click", () => {
+    requestLandscapeMode({ force: true });
+  });
+  ui.overlayLandscapeButton.addEventListener("click", () => {
+    requestLandscapeMode({ force: true });
+  });
+  ui.volumeSlider.addEventListener("input", () => updateVolume());
+  ui.volumeSlider.addEventListener("change", () => updateVolume({ persist: true }));
   ui.octaveDown.addEventListener("click", () => shiftOctave(-1));
   ui.octaveUp.addEventListener("click", () => shiftOctave(1));
+  ui.sustainToggle.addEventListener("click", toggleSustain);
+  ui.panicButton.addEventListener("click", () => panicAllNotes());
   document.addEventListener("keydown", handleKeyboardDown);
   document.addEventListener("keyup", handleKeyboardUp);
   window.addEventListener("blur", () => {
-    audioEngine.stopAll();
-    pressedSources.clear();
-    activeNotes.clear();
-    keyElementMap.forEach((_, noteLabel) => markKey(noteLabel, false));
-    updateNowPlaying();
+    panicAllNotes("");
   });
-  window
-    .matchMedia("(max-width: 900px) and (orientation: portrait)")
-    .addEventListener("change", syncOrientationState);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      panicAllNotes("");
+    }
+  });
+
+  const orientationQuery = window.matchMedia("(max-width: 900px) and (orientation: portrait)");
+  if (orientationQuery.addEventListener) {
+    orientationQuery.addEventListener("change", syncOrientationState);
+  } else {
+    orientationQuery.addListener(syncOrientationState);
+  }
 }
 
 function init() {
+  loadPreferences();
+  refreshNoteRange();
   renderInstrumentCards();
   renderKeyboard();
   syncInstrumentState();
+  syncSustainState();
+  ui.volumeSlider.value = String(Math.round(state.volume * 100));
   updateVolume();
   updateNowPlaying();
   syncOrientationState();
