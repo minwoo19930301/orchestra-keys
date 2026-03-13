@@ -387,6 +387,8 @@ input[type="range"] {
 }
 
 .key--black {
+  top: 16px;
+  bottom: auto;
   width: var(--black-key-width);
   left: calc(16px + var(--black-left) * (100% - 32px) - var(--black-key-width) / 2);
   height: calc((100% - 32px) * 0.58);
