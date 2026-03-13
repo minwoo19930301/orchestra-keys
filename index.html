@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0b1021" />
+    <title>Stage Keys</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Syne:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="viewport-shell">
+      <main class="app-shell">
+        <section class="hero-panel">
+          <div class="hero-copy">
+            <p class="eyebrow">Multi Instrument Keyboard</p>
+            <h1>Stage Keys</h1>
+            <p class="hero-description">
+              피아노, 트럼펫, 바이올린, 오르간 등 8가지 악기를 한 화면에서 바로
+              연주할 수 있는 웹 스테이지입니다.
+            </p>
+          </div>
+
+          <div class="hero-actions">
+            <button id="start-audio-btn" class="primary-button" type="button">
+              소리 켜고 시작
+            </button>
+            <button id="landscape-btn" class="ghost-button" type="button">
+              모바일 가로 모드
+            </button>
+            <p id="audio-status" class="status-line">
+              첫 터치 후 오디오가 활성화됩니다.
+            </p>
+          </div>
+        </section>
+
+        <section class="control-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">Instrument Rack</p>
+              <h2 id="current-instrument-name">Grand Piano</h2>
+            </div>
+            <p id="instrument-description" class="instrument-description">
+              맑은 어택과 짧은 잔향이 섞인 클래식 피아노 톤.
+            </p>
+          </div>
+
+          <div id="instrument-grid" class="instrument-grid" role="tablist"></div>
+
+          <div class="utility-grid">
+            <label class="utility-card utility-card--range" for="volume-slider">
+              <span class="utility-label">Master Volume</span>
+              <div class="range-row">
+                <input
+                  id="volume-slider"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="74"
+                  aria-label="Master volume"
+                />
+                <strong id="volume-value">74%</strong>
+              </div>
+            </label>
+
+            <div class="utility-card">
+              <span class="utility-label">Keyboard Range</span>
+              <div class="octave-controls">
+                <button id="octave-down-btn" class="mini-button" type="button">
+                  -1 Oct
+                </button>
+                <strong id="octave-range-label">C4 - F5</strong>
+                <button id="octave-up-btn" class="mini-button" type="button">
+                  +1 Oct
+                </button>
+              </div>
+            </div>
+
+            <div class="utility-card">
+              <span class="utility-label">Now Playing</span>
+              <strong id="active-note-label">Ready for the first chord</strong>
+              <p id="active-note-detail" class="utility-detail">
+                A / W / S / E 또는 터치로 연주할 수 있습니다.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="keyboard-panel">
+          <div class="panel-heading panel-heading--keyboard">
+            <div>
+              <p class="section-label">Keyboard Deck</p>
+              <h2>Touch, Click, or Type</h2>
+            </div>
+            <p class="instrument-description">
+              키보드 단축키는 각 건반 하단에 표시됩니다. 모바일에서는 첫 시작 때
+              가로 전환을 시도합니다.
+            </p>
+          </div>
+
+          <div id="keyboard" class="keyboard" aria-label="Playable keyboard"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="portrait-overlay" class="portrait-overlay" aria-hidden="true">
+      <div class="portrait-card">
+        <p class="section-label">Mobile Performance Mode</p>
+        <h2>가로 화면이 더 잘 맞습니다</h2>
+        <p>
+          모바일에서는 가로 스테이지를 우선 사용합니다. 브라우저가 허용하면
+          자동으로 가로 잠금을 시도하고, 아니면 기기를 회전해 주세요.
+        </p>
+        <button id="overlay-landscape-btn" class="primary-button" type="button">
+          가로 모드 다시 시도
+        </button>
+      </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

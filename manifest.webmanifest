@@ -1,0 +1,18 @@
+{
+  "name": "Stage Keys",
+  "short_name": "Stage Keys",
+  "description": "Play piano, trumpet, violin, organ and more in a mobile-friendly landscape stage.",
+  "display": "standalone",
+  "background_color": "#0b1021",
+  "theme_color": "#0b1021",
+  "orientation": "landscape",
+  "start_url": "./",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,785 @@
+const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const KEY_BINDINGS = [
+  "A",
+  "W",
+  "S",
+  "E",
+  "D",
+  "F",
+  "T",
+  "G",
+  "Y",
+  "H",
+  "U",
+  "J",
+  "K",
+  "O",
+  "L",
+  "P",
+  ";",
+  "'",
+];
+
+const KEY_EVENT_MAP = new Map(
+  KEY_BINDINGS.map((label, index) => [
+    label === ";"
+      ? "Semicolon"
+      : label === "'"
+        ? "Quote"
+        : `Key${label}`,
+    index,
+  ]),
+);
+
+const INSTRUMENTS = [
+  {
+    id: "piano",
+    korean: "피아노",
+    english: "Grand Piano",
+    accent: "#f7bf5b",
+    detail: "해머 어택과 짧은 잔향이 섞인 클래식 톤",
+    wave: [0, 1, 0.5, 0.16, 0.08, 0.03],
+    attack: 0.005,
+    decay: 1.2,
+    sustain: 0.06,
+    release: 0.8,
+    filterType: "lowpass",
+    filterFrequency: 4800,
+    filterQ: 0.9,
+    vibratoRate: 0,
+    vibratoDepth: 0,
+    reverbSend: 0.24,
+    detuneSpread: 3,
+    voiceMix: [
+      { gain: 0.88, octave: 0 },
+      { gain: 0.32, octave: 1, detune: 6 },
+    ],
+  },
+  {
+    id: "trumpet",
+    korean: "트럼펫",
+    english: "Brass Trumpet",
+    accent: "#ff8a5b",
+    detail: "밝게 튀는 브라스 성분과 살짝 흔들리는 비브라토",
+    wave: [0, 1, 0.82, 0.61, 0.38, 0.24, 0.12],
+    attack: 0.028,
+    decay: 0.26,
+    sustain: 0.48,
+    release: 0.3,
+    filterType: "bandpass",
+    filterFrequency: 2200,
+    filterQ: 0.95,
+    vibratoRate: 5.2,
+    vibratoDepth: 14,
+    reverbSend: 0.18,
+    detuneSpread: 9,
+    voiceMix: [
+      { gain: 0.88, octave: 0 },
+      { gain: 0.25, octave: 0, detune: 7 },
+    ],
+  },
+  {
+    id: "violin",
+    korean: "바이올린",
+    english: "Solo Violin",
+    accent: "#ff6392",
+    detail: "느린 어택과 유연한 비브라토를 가진 스트링 톤",
+    wave: [0, 1, 0.71, 0.5, 0.34, 0.2, 0.14, 0.08],
+    attack: 0.08,
+    decay: 0.38,
+    sustain: 0.58,
+    release: 0.42,
+    filterType: "lowpass",
+    filterFrequency: 3400,
+    filterQ: 0.7,
+    vibratoRate: 6,
+    vibratoDepth: 18,
+    reverbSend: 0.3,
+    detuneSpread: 13,
+    voiceMix: [
+      { gain: 0.75, octave: 0 },
+      { gain: 0.22, octave: 0, detune: -7 },
+    ],
+  },
+  {
+    id: "organ",
+    korean: "오르간",
+    english: "Cathedral Organ",
+    accent: "#94d26a",
+    detail: "지속감이 긴 파이프 오르간 계열의 풍성한 사운드",
+    wave: [0, 1, 0.08, 0.74, 0.05, 0.44, 0.04, 0.24],
+    attack: 0.012,
+    decay: 0.22,
+    sustain: 0.86,
+    release: 0.5,
+    filterType: "lowpass",
+    filterFrequency: 3000,
+    filterQ: 0.4,
+    vibratoRate: 0,
+    vibratoDepth: 0,
+    reverbSend: 0.34,
+    detuneSpread: 4,
+    voiceMix: [
+      { gain: 0.56, octave: 0 },
+      { gain: 0.34, octave: 1 },
+      { gain: 0.24, octave: 2, detune: 4 },
+    ],
+  },
+  {
+    id: "flute",
+    korean: "플루트",
+    english: "Concert Flute",
+    accent: "#67d8ff",
+    detail: "깨끗한 기본파와 은은한 숨결감에 가까운 음색",
+    wave: [0, 1, 0.18, 0.06, 0.02],
+    attack: 0.07,
+    decay: 0.24,
+    sustain: 0.52,
+    release: 0.38,
+    filterType: "lowpass",
+    filterFrequency: 2500,
+    filterQ: 0.5,
+    vibratoRate: 5.3,
+    vibratoDepth: 9,
+    reverbSend: 0.28,
+    detuneSpread: 2,
+    voiceMix: [
+      { gain: 0.9, octave: 0 },
+      { gain: 0.12, octave: 1, detune: 3 },
+    ],
+  },
+  {
+    id: "saxophone",
+    korean: "색소폰",
+    english: "Alto Sax",
+    accent: "#f58aeb",
+    detail: "짙은 미드레인지와 살짝 거친 브레스 감각",
+    wave: [0, 1, 0.6, 0.46, 0.25, 0.16, 0.08],
+    attack: 0.04,
+    decay: 0.32,
+    sustain: 0.42,
+    release: 0.28,
+    filterType: "bandpass",
+    filterFrequency: 1650,
+    filterQ: 1.1,
+    vibratoRate: 4.8,
+    vibratoDepth: 11,
+    reverbSend: 0.2,
+    detuneSpread: 7,
+    voiceMix: [
+      { gain: 0.84, octave: 0 },
+      { gain: 0.2, octave: 0, detune: -5 },
+    ],
+  },
+  {
+    id: "guitar",
+    korean: "기타",
+    english: "Electric Guitar",
+    accent: "#ffd166",
+    detail: "짧게 튕기는 플럭과 약간의 금속성 하모닉",
+    wave: [0, 1, 0.34, 0.17, 0.1, 0.04],
+    attack: 0.004,
+    decay: 0.9,
+    sustain: 0.08,
+    release: 0.42,
+    filterType: "lowpass",
+    filterFrequency: 2800,
+    filterQ: 0.8,
+    vibratoRate: 0,
+    vibratoDepth: 0,
+    reverbSend: 0.14,
+    detuneSpread: 6,
+    voiceMix: [
+      { gain: 0.86, octave: 0 },
+      { gain: 0.18, octave: 1, detune: 8 },
+    ],
+  },
+  {
+    id: "xylophone",
+    korean: "실로폰",
+    english: "Xylophone",
+    accent: "#91f2b3",
+    detail: "짧고 선명한 말렛 계열 타격감",
+    wave: [0, 1, 0.3, 0.06, 0.22, 0.05, 0.08],
+    attack: 0.003,
+    decay: 0.55,
+    sustain: 0.02,
+    release: 0.2,
+    filterType: "highpass",
+    filterFrequency: 620,
+    filterQ: 0.45,
+    vibratoRate: 0,
+    vibratoDepth: 0,
+    reverbSend: 0.3,
+    detuneSpread: 0,
+    voiceMix: [
+      { gain: 0.9, octave: 0 },
+      { gain: 0.22, octave: 1, detune: 12 },
+    ],
+  },
+];
+
+const state = {
+  instrumentId: "piano",
+  baseOctave: 4,
+  volume: 0.74,
+  audioReady: false,
+  portraitMode: false,
+};
+
+const ui = {
+  audioButton: document.querySelector("#start-audio-btn"),
+  landscapeButton: document.querySelector("#landscape-btn"),
+  overlayLandscapeButton: document.querySelector("#overlay-landscape-btn"),
+  audioStatus: document.querySelector("#audio-status"),
+  instrumentGrid: document.querySelector("#instrument-grid"),
+  instrumentName: document.querySelector("#current-instrument-name"),
+  instrumentDescription: document.querySelector("#instrument-description"),
+  keyboard: document.querySelector("#keyboard"),
+  volumeSlider: document.querySelector("#volume-slider"),
+  volumeValue: document.querySelector("#volume-value"),
+  activeNoteLabel: document.querySelector("#active-note-label"),
+  activeNoteDetail: document.querySelector("#active-note-detail"),
+  octaveDown: document.querySelector("#octave-down-btn"),
+  octaveUp: document.querySelector("#octave-up-btn"),
+  octaveRange: document.querySelector("#octave-range-label"),
+  portraitOverlay: document.querySelector("#portrait-overlay"),
+};
+
+class AudioEngine {
+  constructor() {
+    this.context = null;
+    this.masterGain = null;
+    this.outputCompressor = null;
+    this.reverb = null;
+    this.reverbInput = null;
+    this.waveCache = new Map();
+    this.activeVoices = new Map();
+  }
+
+  async ensureReady() {
+    if (!this.context) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      this.context = new AudioCtx();
+      this.outputCompressor = this.context.createDynamicsCompressor();
+      this.outputCompressor.threshold.value = -18;
+      this.outputCompressor.knee.value = 20;
+      this.outputCompressor.ratio.value = 3;
+      this.outputCompressor.attack.value = 0.005;
+      this.outputCompressor.release.value = 0.18;
+
+      this.masterGain = this.context.createGain();
+      this.masterGain.gain.value = state.volume;
+
+      this.reverb = this.context.createConvolver();
+      this.reverb.buffer = this.createImpulseResponse(2.4, 1.9);
+
+      this.reverbInput = this.context.createGain();
+      this.reverbInput.gain.value = 0.35;
+
+      this.reverbInput.connect(this.reverb);
+      this.reverb.connect(this.outputCompressor);
+      this.masterGain.connect(this.outputCompressor);
+      this.outputCompressor.connect(this.context.destination);
+    }
+
+    if (this.context.state === "suspended") {
+      await this.context.resume();
+    }
+  }
+
+  setVolume(nextVolume) {
+    state.volume = nextVolume;
+    if (this.masterGain && this.context) {
+      this.masterGain.gain.setTargetAtTime(nextVolume, this.context.currentTime, 0.015);
+    }
+  }
+
+  startVoice(sourceId, note) {
+    const preset = getInstrument();
+    this.stopVoice(sourceId);
+
+    if (!this.context) {
+      return;
+    }
+
+    const now = this.context.currentTime;
+    const voiceGain = this.context.createGain();
+    const filter = this.context.createBiquadFilter();
+    const reverbSend = this.context.createGain();
+    const vibratoOsc = preset.vibratoDepth ? this.context.createOscillator() : null;
+    const vibratoGain = preset.vibratoDepth ? this.context.createGain() : null;
+    const oscillators = [];
+
+    filter.type = preset.filterType;
+    filter.frequency.value = preset.filterFrequency;
+    filter.Q.value = preset.filterQ;
+
+    voiceGain.gain.setValueAtTime(0.0001, now);
+    voiceGain.connect(filter);
+    filter.connect(this.masterGain);
+    filter.connect(reverbSend);
+
+    reverbSend.gain.value = preset.reverbSend;
+    reverbSend.connect(this.reverbInput);
+
+    if (vibratoOsc && vibratoGain) {
+      vibratoOsc.type = "sine";
+      vibratoOsc.frequency.value = preset.vibratoRate;
+      vibratoGain.gain.value = preset.vibratoDepth;
+      vibratoOsc.connect(vibratoGain);
+    }
+
+    const wave = this.getWave(preset.wave);
+
+    preset.voiceMix.forEach((voicePart, voiceIndex) => {
+      const oscillator = this.context.createOscillator();
+      const partGain = this.context.createGain();
+      const detuneJitter = voiceIndex * preset.detuneSpread;
+      oscillator.setPeriodicWave(wave);
+      oscillator.frequency.value = note.frequency * 2 ** (voicePart.octave || 0);
+      oscillator.detune.value = (voicePart.detune || 0) + detuneJitter;
+      partGain.gain.value = voicePart.gain;
+      oscillator.connect(partGain);
+      partGain.connect(voiceGain);
+      if (vibratoGain) {
+        vibratoGain.connect(oscillator.detune);
+      }
+      oscillator.start(now);
+      oscillators.push(oscillator);
+    });
+
+    if (vibratoOsc) {
+      vibratoOsc.start(now);
+    }
+
+    const peak = 0.36;
+    const sustain = Math.max(peak * preset.sustain, 0.0001);
+    voiceGain.gain.cancelScheduledValues(now);
+    voiceGain.gain.setValueAtTime(0.0001, now);
+    voiceGain.gain.linearRampToValueAtTime(peak, now + preset.attack);
+    voiceGain.gain.exponentialRampToValueAtTime(
+      sustain,
+      now + preset.attack + preset.decay,
+    );
+
+    this.activeVoices.set(sourceId, {
+      oscillators,
+      vibratoOsc,
+      voiceGain,
+      filter,
+      reverbSend,
+      note,
+      released: false,
+      preset,
+    });
+  }
+
+  stopVoice(sourceId) {
+    const voice = this.activeVoices.get(sourceId);
+    if (!voice || !this.context || voice.released) {
+      return;
+    }
+
+    voice.released = true;
+    const now = this.context.currentTime;
+    const releaseEnd = now + voice.preset.release;
+    const currentGain = Math.max(voice.voiceGain.gain.value, 0.0001);
+    voice.voiceGain.gain.cancelScheduledValues(now);
+    voice.voiceGain.gain.setValueAtTime(currentGain, now);
+    voice.voiceGain.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+    voice.reverbSend.gain.cancelScheduledValues(now);
+    voice.reverbSend.gain.setValueAtTime(voice.reverbSend.gain.value, now);
+    voice.reverbSend.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+
+    voice.oscillators.forEach((oscillator) => oscillator.stop(releaseEnd + 0.05));
+    voice.vibratoOsc?.stop(releaseEnd + 0.05);
+    window.setTimeout(() => {
+      voice.oscillators.forEach((oscillator) => oscillator.disconnect());
+      voice.vibratoOsc?.disconnect();
+      voice.voiceGain.disconnect();
+      voice.filter.disconnect();
+      voice.reverbSend.disconnect();
+    }, (voice.preset.release + 0.08) * 1000);
+
+    this.activeVoices.delete(sourceId);
+  }
+
+  stopAll() {
+    [...this.activeVoices.keys()].forEach((sourceId) => this.stopVoice(sourceId));
+  }
+
+  createImpulseResponse(duration, decay) {
+    const frameCount = Math.floor(this.context.sampleRate * duration);
+    const impulse = this.context.createBuffer(2, frameCount, this.context.sampleRate);
+
+    for (let channel = 0; channel < impulse.numberOfChannels; channel += 1) {
+      const channelData = impulse.getChannelData(channel);
+      for (let index = 0; index < frameCount; index += 1) {
+        const fade = (1 - index / frameCount) ** decay;
+        channelData[index] = (Math.random() * 2 - 1) * fade;
+      }
+    }
+
+    return impulse;
+  }
+
+  getWave(partials) {
+    const cacheKey = partials.join("-");
+    if (this.waveCache.has(cacheKey)) {
+      return this.waveCache.get(cacheKey);
+    }
+
+    const real = new Float32Array(partials.length);
+    const imag = new Float32Array(partials.length);
+    partials.forEach((value, index) => {
+      imag[index] = value;
+      real[index] = 0;
+    });
+
+    const wave = this.context.createPeriodicWave(real, imag, {
+      disableNormalization: false,
+    });
+    this.waveCache.set(cacheKey, wave);
+    return wave;
+  }
+}
+
+const audioEngine = new AudioEngine();
+const keyElementMap = new Map();
+const pressedSources = new Map();
+const activeNotes = new Map();
+
+function getInstrument() {
+  return INSTRUMENTS.find((instrument) => instrument.id === state.instrumentId) ?? INSTRUMENTS[0];
+}
+
+function midiToFrequency(midi) {
+  return 440 * 2 ** ((midi - 69) / 12);
+}
+
+function midiToLabel(midi) {
+  const octave = Math.floor(midi / 12) - 1;
+  return `${NOTE_NAMES[midi % 12]}${octave}`;
+}
+
+function buildNoteRange() {
+  const startMidi = (state.baseOctave + 1) * 12;
+  const notes = [];
+  let whiteIndex = 0;
+
+  for (let offset = 0; offset < 18; offset += 1) {
+    const midi = startMidi + offset;
+    const pitch = midi % 12;
+    const isBlack = NOTE_NAMES[pitch].includes("#");
+    const note = {
+      midi,
+      label: midiToLabel(midi),
+      bind: KEY_BINDINGS[offset],
+      frequency: midiToFrequency(midi),
+      isBlack,
+    };
+
+    if (!isBlack) {
+      note.whiteIndex = whiteIndex;
+      whiteIndex += 1;
+    } else {
+      note.blackLeft = whiteIndex / 11;
+    }
+
+    notes.push(note);
+  }
+
+  return notes;
+}
+
+function renderInstrumentCards() {
+  ui.instrumentGrid.innerHTML = "";
+
+  INSTRUMENTS.forEach((instrument) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "instrument-card";
+    button.setAttribute("role", "tab");
+    button.dataset.instrument = instrument.id;
+    button.dataset.accent = instrument.accent;
+    button.setAttribute("aria-selected", instrument.id === state.instrumentId ? "true" : "false");
+    button.innerHTML = `
+      <span class="instrument-card__korean">${instrument.korean}</span>
+      <strong class="instrument-card__english">${instrument.english}</strong>
+      <span class="instrument-card__detail">${instrument.detail}</span>
+    `;
+
+    button.addEventListener("click", async () => {
+      state.instrumentId = instrument.id;
+      syncInstrumentState();
+      if (state.audioReady) {
+        playPreview();
+      }
+    });
+
+    ui.instrumentGrid.append(button);
+  });
+}
+
+function renderKeyboard() {
+  const notes = buildNoteRange();
+  const whiteCount = notes.filter((note) => !note.isBlack).length;
+  document.documentElement.style.setProperty("--white-count", String(whiteCount));
+  ui.keyboard.innerHTML = "";
+  keyElementMap.clear();
+
+  notes.forEach((note) => {
+    const key = document.createElement("button");
+    key.type = "button";
+    key.className = `key ${note.isBlack ? "key--black" : "key--white"}`;
+    key.dataset.note = note.label;
+    key.setAttribute("aria-label", `${note.label} key`);
+
+    if (note.isBlack) {
+      key.style.setProperty("--black-left", String(note.blackLeft));
+    } else {
+      key.style.setProperty("--white-index", String(note.whiteIndex));
+    }
+
+    key.innerHTML = `
+      <span class="key__note">${note.label}</span>
+      <span class="key__bind">${note.bind}</span>
+    `;
+
+    key.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const sourceId = `pointer-${event.pointerId}`;
+      try {
+        key.setPointerCapture(event.pointerId);
+      } catch {
+        // Some mobile browsers can reject capture when the pointer is already released.
+      }
+      activateAudioIfNeeded().then(() => {
+        startPlaying(sourceId, note);
+      });
+    });
+
+    const pointerStop = (event) => {
+      const sourceId = `pointer-${event.pointerId}`;
+      stopPlaying(sourceId);
+    };
+
+    key.addEventListener("pointerup", pointerStop);
+    key.addEventListener("pointercancel", pointerStop);
+    key.addEventListener("lostpointercapture", pointerStop);
+
+    ui.keyboard.append(key);
+    keyElementMap.set(note.label, key);
+  });
+
+  const startLabel = notes[0].label;
+  const endLabel = notes.at(-1).label;
+  ui.octaveRange.textContent = `${startLabel} - ${endLabel}`;
+}
+
+function syncInstrumentState() {
+  const instrument = getInstrument();
+  document.documentElement.style.setProperty("--accent", instrument.accent);
+  document.documentElement.style.setProperty(
+    "--accent-soft",
+    `${instrument.accent}33`,
+  );
+  ui.instrumentName.textContent = instrument.english;
+  ui.instrumentDescription.textContent = instrument.detail;
+
+  document.querySelectorAll(".instrument-card").forEach((button) => {
+    button.setAttribute(
+      "aria-selected",
+      button.dataset.instrument === instrument.id ? "true" : "false",
+    );
+  });
+}
+
+function noteDisplayText() {
+  if (!activeNotes.size) {
+    return "Ready for the first chord";
+  }
+
+  return [...activeNotes.keys()].join("  ·  ");
+}
+
+function updateNowPlaying() {
+  ui.activeNoteLabel.textContent = noteDisplayText();
+  ui.activeNoteDetail.textContent = activeNotes.size
+    ? `${getInstrument().english} · ${activeNotes.size} note${activeNotes.size > 1 ? "s" : ""}`
+    : "A / W / S / E 또는 터치로 연주할 수 있습니다.";
+}
+
+function markKey(noteLabel, active) {
+  const key = keyElementMap.get(noteLabel);
+  if (key) {
+    key.classList.toggle("is-active", active);
+  }
+}
+
+function startPlaying(sourceId, note) {
+  pressedSources.set(sourceId, note);
+  audioEngine.startVoice(sourceId, note);
+  activeNotes.set(note.label, note);
+  markKey(note.label, true);
+  updateNowPlaying();
+}
+
+function stopPlaying(sourceId) {
+  const note = pressedSources.get(sourceId);
+  if (!note) {
+    return;
+  }
+
+  audioEngine.stopVoice(sourceId);
+  pressedSources.delete(sourceId);
+
+  const sameNoteStillPressed = [...pressedSources.values()].some(
+    (pressedNote) => pressedNote.label === note.label,
+  );
+
+  if (!sameNoteStillPressed) {
+    activeNotes.delete(note.label);
+    markKey(note.label, false);
+  }
+
+  updateNowPlaying();
+}
+
+async function activateAudioIfNeeded() {
+  await audioEngine.ensureReady();
+  state.audioReady = true;
+  ui.audioButton.textContent = "오디오 준비 완료";
+  ui.audioStatus.textContent = "오디오 엔진이 활성화되었습니다.";
+  await requestLandscapeMode();
+}
+
+async function requestLandscapeMode() {
+  const isMobile = window.matchMedia("(max-width: 900px)").matches;
+  if (!isMobile) {
+    return;
+  }
+
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen();
+    }
+  } catch {
+    // Fullscreen can fail on browsers that require specific gestures.
+  }
+
+  try {
+    if (screen.orientation?.lock) {
+      await screen.orientation.lock("landscape");
+    }
+  } catch {
+    ui.audioStatus.textContent = "브라우저 제한으로 자동 가로 잠금이 실패하면 직접 회전해 주세요.";
+  }
+}
+
+function playPreview() {
+  const previewNote = buildNoteRange()[5];
+  const previewId = "preview";
+  startPlaying(previewId, previewNote);
+  window.setTimeout(() => stopPlaying(previewId), 320);
+}
+
+function handleKeyboardDown(event) {
+  if (event.repeat) {
+    return;
+  }
+
+  const activeElement = document.activeElement;
+  if (
+    activeElement instanceof HTMLInputElement ||
+    activeElement instanceof HTMLButtonElement
+  ) {
+    return;
+  }
+
+  const noteIndex = KEY_EVENT_MAP.get(event.code);
+  if (noteIndex == null) {
+    return;
+  }
+
+  const notes = buildNoteRange();
+  const note = notes[noteIndex];
+  if (!note) {
+    return;
+  }
+
+  event.preventDefault();
+  activateAudioIfNeeded().then(() => {
+    startPlaying(`keyboard-${event.code}`, note);
+  });
+}
+
+function handleKeyboardUp(event) {
+  const noteIndex = KEY_EVENT_MAP.get(event.code);
+  if (noteIndex == null) {
+    return;
+  }
+
+  event.preventDefault();
+  stopPlaying(`keyboard-${event.code}`);
+}
+
+function updateVolume() {
+  const volume = Number(ui.volumeSlider.value) / 100;
+  ui.volumeValue.textContent = `${ui.volumeSlider.value}%`;
+  audioEngine.setVolume(volume);
+}
+
+function shiftOctave(direction) {
+  const nextOctave = Math.min(5, Math.max(2, state.baseOctave + direction));
+  if (nextOctave === state.baseOctave) {
+    return;
+  }
+
+  audioEngine.stopAll();
+  pressedSources.clear();
+  activeNotes.clear();
+  state.baseOctave = nextOctave;
+  renderKeyboard();
+  updateNowPlaying();
+}
+
+function syncOrientationState() {
+  state.portraitMode =
+    window.matchMedia("(max-width: 900px) and (orientation: portrait)").matches;
+  ui.portraitOverlay.setAttribute("aria-hidden", state.portraitMode ? "false" : "true");
+}
+
+function wireEvents() {
+  ui.audioButton.addEventListener("click", activateAudioIfNeeded);
+  ui.landscapeButton.addEventListener("click", requestLandscapeMode);
+  ui.overlayLandscapeButton.addEventListener("click", requestLandscapeMode);
+  ui.volumeSlider.addEventListener("input", updateVolume);
+  ui.octaveDown.addEventListener("click", () => shiftOctave(-1));
+  ui.octaveUp.addEventListener("click", () => shiftOctave(1));
+  document.addEventListener("keydown", handleKeyboardDown);
+  document.addEventListener("keyup", handleKeyboardUp);
+  window.addEventListener("blur", () => {
+    audioEngine.stopAll();
+    pressedSources.clear();
+    activeNotes.clear();
+    keyElementMap.forEach((_, noteLabel) => markKey(noteLabel, false));
+    updateNowPlaying();
+  });
+  window
+    .matchMedia("(max-width: 900px) and (orientation: portrait)")
+    .addEventListener("change", syncOrientationState);
+}
+
+function init() {
+  renderInstrumentCards();
+  renderKeyboard();
+  syncInstrumentState();
+  updateVolume();
+  updateNowPlaying();
+  syncOrientationState();
+  wireEvents();
+}
+
+init();
