@@ -118,6 +118,58 @@
                 Space: Sustain 토글 · Esc: 모든 음 정지
               </p>
             </div>
+
+            <div class="utility-card utility-card--actions">
+              <span class="utility-label">Recorder</span>
+              <div class="action-row action-row--stack">
+                <button id="record-toggle-btn" class="mini-button" type="button">
+                  Record
+                </button>
+                <button
+                  id="loop-toggle-btn"
+                  class="mini-button mini-button--toggle"
+                  type="button"
+                  aria-pressed="false"
+                  disabled
+                >
+                  Loop OFF
+                </button>
+                <button id="clear-take-btn" class="mini-button" type="button">
+                  Clear Take
+                </button>
+              </div>
+              <p id="take-info" class="utility-detail">테이크 없음</p>
+            </div>
+
+            <div class="utility-card utility-card--actions">
+              <span class="utility-label">Tempo & MIDI</span>
+              <div class="range-row range-row--compact">
+                <input
+                  id="bpm-slider"
+                  type="range"
+                  min="60"
+                  max="180"
+                  step="1"
+                  value="108"
+                  aria-label="Metronome BPM"
+                />
+                <strong id="bpm-value">108 BPM</strong>
+              </div>
+              <div class="action-row">
+                <button
+                  id="metronome-toggle-btn"
+                  class="mini-button mini-button--toggle"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  Metronome OFF
+                </button>
+                <button id="midi-connect-btn" class="mini-button" type="button">
+                  MIDI 연결
+                </button>
+              </div>
+              <p id="midi-status" class="utility-detail">MIDI 미연결</p>
+            </div>
           </div>
         </section>
 

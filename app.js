@@ -21,6 +21,9 @@ const KEY_BINDINGS = [
 ];
 const STORAGE_KEY = "stage-keys-prefs-v2";
 const MAX_POLYPHONY = 28;
+const DEFAULT_BPM = 108;
+const MIN_BPM = 60;
+const MAX_BPM = 180;
 
 const KEY_EVENT_MAP = new Map(
   KEY_BINDINGS.map((label, index) => [
@@ -230,6 +233,15 @@ const state = {
   sustainEnabled: false,
   landscapeAttempted: false,
   notes: [],
+  bpm: DEFAULT_BPM,
+  metronomeEnabled: false,
+  recordingActive: false,
+  loopEnabled: false,
+  loopActive: false,
+  takeStartedAtMs: 0,
+  takeDurationMs: 0,
+  takeEvents: [],
+  midiSupported: typeof navigator !== "undefined" && typeof navigator.requestMIDIAccess === "function",
 };
 
 const ui = {
@@ -251,6 +263,15 @@ const ui = {
   portraitOverlay: document.querySelector("#portrait-overlay"),
   sustainToggle: document.querySelector("#sustain-toggle-btn"),
   panicButton: document.querySelector("#panic-btn"),
+  recordToggle: document.querySelector("#record-toggle-btn"),
+  loopToggle: document.querySelector("#loop-toggle-btn"),
+  clearTake: document.querySelector("#clear-take-btn"),
+  takeInfo: document.querySelector("#take-info"),
+  bpmSlider: document.querySelector("#bpm-slider"),
+  bpmValue: document.querySelector("#bpm-value"),
+  metronomeToggle: document.querySelector("#metronome-toggle-btn"),
+  midiConnect: document.querySelector("#midi-connect-btn"),
+  midiStatus: document.querySelector("#midi-status"),
 };
 
 class AudioEngine {
@@ -312,7 +333,7 @@ class AudioEngine {
     }
   }
 
-  startVoice(sourceId, note) {
+  startVoice(sourceId, note, { velocity = 1 } = {}) {
     const preset = getInstrument();
     this.stopVoice(sourceId);
 
@@ -377,7 +398,7 @@ class AudioEngine {
       vibratoOsc.start(now);
     }
 
-    const peak = 0.36;
+    const peak = THREE.MathUtils.clamp(0.12 + velocity * 0.32, 0.06, 0.48);
     const sustain = Math.max(peak * preset.sustain, 0.0001);
     voiceGain.gain.cancelScheduledValues(now);
     voiceGain.gain.setValueAtTime(0.0001, now);
@@ -476,6 +497,15 @@ const noteByLabelMap = new Map();
 const pressedSources = new Map();
 const activeNotes = new Map();
 const pendingSustainSources = new Set();
+const recordingSourceVoiceMap = new Map();
+const midiInputHandlers = new Map();
+const loopTimerIds = new Set();
+
+let nextRecordingVoiceId = 1;
+let metronomeTimerId = null;
+let metronomeBeat = 0;
+let loopCycleSerial = 0;
+let midiAccess = null;
 
 function getInstrument() {
   return INSTRUMENTS.find((instrument) => instrument.id === state.instrumentId) ?? INSTRUMENTS[0];
@@ -509,6 +539,10 @@ function loadPreferences() {
       state.volume = Math.min(1, Math.max(0, volume));
     }
     state.sustainEnabled = Boolean(prefs.sustainEnabled);
+    const bpm = Number(prefs.bpm);
+    if (Number.isFinite(bpm)) {
+      state.bpm = Math.min(MAX_BPM, Math.max(MIN_BPM, Math.round(bpm)));
+    }
   } catch (error) {
     console.warn("Failed to load preferences:", error);
   }
@@ -523,6 +557,7 @@ function savePreferences() {
         baseOctave: state.baseOctave,
         volume: state.volume,
         sustainEnabled: state.sustainEnabled,
+        bpm: state.bpm,
       }),
     );
   } catch (error) {
@@ -741,6 +776,409 @@ function syncSustainState() {
   ui.sustainToggle.classList.toggle("is-on", state.sustainEnabled);
 }
 
+function syncRecorderState() {
+  ui.recordToggle.textContent = state.recordingActive ? "Stop Recording" : "Record";
+  ui.recordToggle.classList.toggle("is-on", state.recordingActive);
+}
+
+function syncLoopState() {
+  const hasTake = state.takeEvents.length > 0;
+  ui.loopToggle.disabled = !hasTake;
+  ui.loopToggle.setAttribute("aria-pressed", state.loopEnabled ? "true" : "false");
+  ui.loopToggle.textContent = state.loopEnabled ? "Loop ON" : "Loop OFF";
+  ui.loopToggle.classList.toggle("is-on", state.loopEnabled);
+}
+
+function syncBpmState() {
+  ui.bpmSlider.value = String(state.bpm);
+  ui.bpmValue.textContent = `${state.bpm} BPM`;
+}
+
+function syncMetronomeState() {
+  ui.metronomeToggle.setAttribute("aria-pressed", state.metronomeEnabled ? "true" : "false");
+  ui.metronomeToggle.textContent = state.metronomeEnabled ? "Metronome ON" : "Metronome OFF";
+  ui.metronomeToggle.classList.toggle("is-on", state.metronomeEnabled);
+}
+
+function updateTakeInfo() {
+  if (!state.takeEvents.length) {
+    ui.takeInfo.textContent = "테이크 없음";
+    return;
+  }
+  const noteOnCount = state.takeEvents.filter((event) => event.type === "on").length;
+  const seconds = (state.takeDurationMs / 1000).toFixed(2);
+  ui.takeInfo.textContent = `${seconds}s · ${noteOnCount} notes`;
+}
+
+function updateMidiStatus(text) {
+  ui.midiStatus.textContent = text;
+}
+
+function isRecordableSource(sourceId) {
+  return (
+    sourceId.startsWith("keyboard-")
+    || sourceId.startsWith("pointer-")
+    || sourceId.startsWith("midi-")
+  );
+}
+
+function getNoteByMidi(midi) {
+  const label = midiToLabel(midi);
+  return noteByLabelMap.get(label) ?? {
+    midi,
+    label,
+    bind: "",
+    frequency: midiToFrequency(midi),
+    isBlack: NOTE_NAMES[midi % 12].includes("#"),
+  };
+}
+
+function recordNoteOn(sourceId, note, velocity = 1) {
+  if (!state.recordingActive || !isRecordableSource(sourceId)) {
+    return;
+  }
+  let voiceId = recordingSourceVoiceMap.get(sourceId);
+  if (!voiceId) {
+    voiceId = `v${nextRecordingVoiceId}`;
+    nextRecordingVoiceId += 1;
+    recordingSourceVoiceMap.set(sourceId, voiceId);
+  }
+  const at = performance.now() - state.takeStartedAtMs;
+  state.takeEvents.push({
+    type: "on",
+    at,
+    voiceId,
+    midi: note.midi,
+    velocity: Number.isFinite(velocity) ? velocity : 1,
+  });
+  state.takeDurationMs = Math.max(state.takeDurationMs, at);
+  updateTakeInfo();
+}
+
+function recordNoteOff(sourceId) {
+  if (!state.recordingActive || !isRecordableSource(sourceId)) {
+    return;
+  }
+  const voiceId = recordingSourceVoiceMap.get(sourceId);
+  if (!voiceId) {
+    return;
+  }
+  const at = performance.now() - state.takeStartedAtMs;
+  state.takeEvents.push({
+    type: "off",
+    at,
+    voiceId,
+  });
+  state.takeDurationMs = Math.max(state.takeDurationMs, at);
+  recordingSourceVoiceMap.delete(sourceId);
+  updateTakeInfo();
+}
+
+function clearLoopTimers() {
+  loopTimerIds.forEach((timerId) => window.clearTimeout(timerId));
+  loopTimerIds.clear();
+}
+
+function stopLoopPlayback() {
+  clearLoopTimers();
+  loopCycleSerial += 1;
+  state.loopActive = false;
+  [...pressedSources.keys()].forEach((sourceId) => {
+    if (sourceId.startsWith("loop-")) {
+      forceStopSource(sourceId, { track: false });
+    }
+  });
+  updateNowPlaying();
+}
+
+function scheduleLoopPlaybackCycle() {
+  if (!state.loopEnabled || state.recordingActive || !state.takeEvents.length) {
+    state.loopActive = false;
+    return;
+  }
+
+  state.loopActive = true;
+  const cycleId = ++loopCycleSerial;
+  const playbackVoiceMap = new Map();
+  const duration = Math.max(state.takeDurationMs, 180);
+
+  state.takeEvents.forEach((event, index) => {
+    const timerId = window.setTimeout(() => {
+      if (!state.loopEnabled || cycleId !== loopCycleSerial) {
+        return;
+      }
+      if (event.type === "on") {
+        const note = getNoteByMidi(event.midi);
+        const sourceId = `loop-${cycleId}-${event.voiceId}-${index}`;
+        playbackVoiceMap.set(event.voiceId, sourceId);
+        startPlaying(sourceId, note, { track: false, velocity: event.velocity ?? 1 });
+      } else {
+        const sourceId = playbackVoiceMap.get(event.voiceId);
+        if (!sourceId) {
+          return;
+        }
+        stopPlaying(sourceId, { force: true, track: false });
+        playbackVoiceMap.delete(event.voiceId);
+      }
+    }, Math.max(0, event.at));
+    loopTimerIds.add(timerId);
+  });
+
+  const cycleEndId = window.setTimeout(() => {
+    playbackVoiceMap.forEach((sourceId) => {
+      stopPlaying(sourceId, { force: true, track: false });
+    });
+    if (state.loopEnabled && !state.recordingActive) {
+      scheduleLoopPlaybackCycle();
+    } else {
+      state.loopActive = false;
+      updateNowPlaying();
+    }
+  }, duration + 40);
+  loopTimerIds.add(cycleEndId);
+  updateNowPlaying();
+}
+
+function setLoopEnabled(enabled) {
+  if (enabled && !state.takeEvents.length) {
+    ui.audioStatus.textContent = "루프할 테이크가 없습니다. 먼저 녹음해 주세요.";
+    return;
+  }
+  if (enabled && state.recordingActive) {
+    ui.audioStatus.textContent = "녹음 중에는 루프를 켤 수 없습니다.";
+    return;
+  }
+  if (state.loopEnabled === enabled) {
+    return;
+  }
+  state.loopEnabled = enabled;
+  syncLoopState();
+
+  if (enabled) {
+    panicAllNotes("", { track: false });
+    scheduleLoopPlaybackCycle();
+  } else {
+    stopLoopPlayback();
+  }
+  updateNowPlaying();
+}
+
+function toggleLoop() {
+  setLoopEnabled(!state.loopEnabled);
+}
+
+function finalizeRecordingOpenVoices() {
+  if (!state.recordingActive) {
+    return;
+  }
+  const at = performance.now() - state.takeStartedAtMs;
+  const uniqueVoiceIds = new Set(recordingSourceVoiceMap.values());
+  uniqueVoiceIds.forEach((voiceId) => {
+    state.takeEvents.push({
+      type: "off",
+      at,
+      voiceId,
+    });
+  });
+  state.takeDurationMs = Math.max(state.takeDurationMs, at);
+  recordingSourceVoiceMap.clear();
+}
+
+function startRecording() {
+  if (state.recordingActive) {
+    return;
+  }
+  if (state.loopEnabled) {
+    setLoopEnabled(false);
+  }
+
+  panicAllNotes("", { track: false });
+  state.recordingActive = true;
+  state.takeStartedAtMs = performance.now();
+  state.takeDurationMs = 0;
+  state.takeEvents = [];
+  recordingSourceVoiceMap.clear();
+  nextRecordingVoiceId = 1;
+  syncRecorderState();
+  syncLoopState();
+  updateTakeInfo();
+  ui.audioStatus.textContent = "녹음 시작";
+}
+
+function stopRecording() {
+  if (!state.recordingActive) {
+    return;
+  }
+  finalizeRecordingOpenVoices();
+  state.recordingActive = false;
+  state.takeDurationMs = Math.max(state.takeDurationMs, 120);
+  state.takeEvents.sort((a, b) => a.at - b.at);
+  syncRecorderState();
+  syncLoopState();
+  updateTakeInfo();
+  ui.audioStatus.textContent = state.takeEvents.length
+    ? "녹음 완료"
+    : "녹음된 이벤트가 없습니다.";
+}
+
+function toggleRecording() {
+  if (state.recordingActive) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+}
+
+function clearTake() {
+  if (state.recordingActive) {
+    stopRecording();
+  }
+  setLoopEnabled(false);
+  state.takeEvents = [];
+  state.takeDurationMs = 0;
+  updateTakeInfo();
+  syncLoopState();
+  ui.audioStatus.textContent = "테이크를 삭제했습니다.";
+}
+
+function playMetronomeClick(accent = false) {
+  if (!audioEngine.context || !audioEngine.masterGain) {
+    return;
+  }
+  const now = audioEngine.context.currentTime;
+  const oscillator = audioEngine.context.createOscillator();
+  const gain = audioEngine.context.createGain();
+
+  oscillator.type = "triangle";
+  oscillator.frequency.value = accent ? 1480 : 980;
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(0.08, now + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+  oscillator.connect(gain);
+  gain.connect(audioEngine.masterGain);
+  oscillator.start(now);
+  oscillator.stop(now + 0.07);
+}
+
+function restartMetronomeTimer() {
+  if (metronomeTimerId) {
+    window.clearInterval(metronomeTimerId);
+    metronomeTimerId = null;
+  }
+  if (!state.metronomeEnabled) {
+    return;
+  }
+  const intervalMs = Math.round(60000 / state.bpm);
+  metronomeBeat = 0;
+  playMetronomeClick(true);
+  metronomeBeat += 1;
+  metronomeTimerId = window.setInterval(() => {
+    const accent = metronomeBeat % 4 === 0;
+    playMetronomeClick(accent);
+    metronomeBeat += 1;
+  }, intervalMs);
+}
+
+function setMetronomeEnabled(enabled) {
+  if (state.metronomeEnabled === enabled) {
+    return;
+  }
+  state.metronomeEnabled = enabled;
+  syncMetronomeState();
+  if (enabled) {
+    activateAudioIfNeeded({ attemptLandscape: false }).then(() => {
+      restartMetronomeTimer();
+    });
+  } else {
+    restartMetronomeTimer();
+  }
+  updateNowPlaying();
+}
+
+function toggleMetronome() {
+  setMetronomeEnabled(!state.metronomeEnabled);
+}
+
+function updateBpm({ persist = false } = {}) {
+  const raw = Number(ui.bpmSlider.value);
+  state.bpm = Math.min(MAX_BPM, Math.max(MIN_BPM, Math.round(raw)));
+  syncBpmState();
+  if (state.metronomeEnabled) {
+    restartMetronomeTimer();
+  }
+  if (persist) {
+    savePreferences();
+  }
+}
+
+function handleMidiMessage(event) {
+  const [status = 0, noteNumber = 0, velocityByte = 0] = event.data || [];
+  const command = status & 0xf0;
+  const velocity = Math.min(1, Math.max(0, velocityByte / 127));
+  const sourceId = `midi-${noteNumber}`;
+
+  if (command === 0x90 && velocity > 0) {
+    const note = getNoteByMidi(noteNumber);
+    activateAudioIfNeeded({ attemptLandscape: false }).then(() => {
+      startPlaying(sourceId, note, { velocity });
+    });
+    return;
+  }
+
+  if (command === 0x80 || (command === 0x90 && velocityByte === 0)) {
+    stopPlaying(sourceId);
+  }
+}
+
+function bindMidiInputs() {
+  midiInputHandlers.forEach((_, inputId) => {
+    const existing = midiAccess?.inputs.get(inputId);
+    if (existing) {
+      existing.onmidimessage = null;
+    }
+  });
+  midiInputHandlers.clear();
+
+  if (!midiAccess) {
+    updateMidiStatus("MIDI 미연결");
+    return;
+  }
+
+  let inputCount = 0;
+  midiAccess.inputs.forEach((input) => {
+    input.onmidimessage = handleMidiMessage;
+    midiInputHandlers.set(input.id, true);
+    inputCount += 1;
+  });
+  if (inputCount > 0) {
+    updateMidiStatus(`MIDI 입력 ${inputCount}개 연결`);
+    ui.midiConnect.textContent = "MIDI 다시 검색";
+  } else {
+    updateMidiStatus("MIDI 장치를 찾지 못했습니다.");
+    ui.midiConnect.textContent = "MIDI 다시 검색";
+  }
+}
+
+async function connectMidi() {
+  if (!state.midiSupported) {
+    updateMidiStatus("이 브라우저는 Web MIDI를 지원하지 않습니다.");
+    return;
+  }
+
+  try {
+    if (!midiAccess) {
+      midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+      midiAccess.onstatechange = () => {
+        bindMidiInputs();
+      };
+    }
+    bindMidiInputs();
+  } catch (error) {
+    updateMidiStatus("MIDI 권한 요청이 거부되었거나 실패했습니다.");
+    console.warn("MIDI connect failed:", error);
+  }
+}
+
 function noteDisplayText() {
   if (!activeNotes.size) {
     return "Ready for the first chord";
@@ -751,12 +1189,27 @@ function noteDisplayText() {
 
 function updateNowPlaying() {
   ui.activeNoteLabel.textContent = noteDisplayText();
+  const flags = [];
+  if (state.sustainEnabled) {
+    flags.push("Sustain ON");
+  }
+  if (state.recordingActive) {
+    flags.push("Recording");
+  }
+  if (state.loopEnabled) {
+    flags.push(state.loopActive ? "Loop Playing" : "Loop Armed");
+  }
+  if (state.metronomeEnabled) {
+    flags.push(`Metronome ${state.bpm} BPM`);
+  }
+  const statusSuffix = flags.length ? ` · ${flags.join(" · ")}` : "";
+
   if (activeNotes.size) {
-    ui.activeNoteDetail.textContent = `${getInstrument().english} · ${activeNotes.size} note${activeNotes.size > 1 ? "s" : ""}${state.sustainEnabled ? " · Sustain ON" : ""}`;
+    ui.activeNoteDetail.textContent = `${getInstrument().english} · ${activeNotes.size} note${activeNotes.size > 1 ? "s" : ""}${statusSuffix}`;
   } else if (state.sustainEnabled) {
-    ui.activeNoteDetail.textContent = "Sustain ON · 음을 누르면 길게 유지됩니다.";
+    ui.activeNoteDetail.textContent = `Sustain ON · 음을 누르면 길게 유지됩니다.${statusSuffix.replace(" · Sustain ON", "")}`;
   } else {
-    ui.activeNoteDetail.textContent = "A / W / S / E 또는 터치로 연주할 수 있습니다.";
+    ui.activeNoteDetail.textContent = `A / W / S / E 또는 터치로 연주할 수 있습니다.${statusSuffix}`;
   }
 }
 
@@ -779,29 +1232,41 @@ function noteReferencedElsewhere(noteLabel, excludedSourceId = null) {
   return false;
 }
 
-function startPlaying(sourceId, note) {
+function startPlaying(sourceId, note, { track = true, velocity = 1 } = {}) {
   if (!note) {
     return;
   }
 
+  const shouldTrack = track && isRecordableSource(sourceId);
   const previous = pressedSources.get(sourceId);
-  if (previous && previous.label !== note.label && !noteReferencedElsewhere(previous.label, sourceId)) {
-    activeNotes.delete(previous.label);
-    markKey(previous.label, false);
+  if (previous && previous.label !== note.label) {
+    if (shouldTrack) {
+      recordNoteOff(sourceId);
+    }
+    if (!noteReferencedElsewhere(previous.label, sourceId)) {
+      activeNotes.delete(previous.label);
+      markKey(previous.label, false);
+    }
   }
 
   pendingSustainSources.delete(sourceId);
   pressedSources.set(sourceId, note);
-  audioEngine.startVoice(sourceId, note);
+  audioEngine.startVoice(sourceId, note, { velocity });
   activeNotes.set(note.label, note);
   markKey(note.label, true);
+  if (shouldTrack) {
+    recordNoteOn(sourceId, note, velocity);
+  }
   updateNowPlaying();
 }
 
-function forceStopSource(sourceId) {
+function forceStopSource(sourceId, { track = true } = {}) {
   const note = pressedSources.get(sourceId);
   if (!note) {
     return;
+  }
+  if (track) {
+    recordNoteOff(sourceId);
   }
   audioEngine.stopVoice(sourceId);
   pendingSustainSources.delete(sourceId);
@@ -812,7 +1277,7 @@ function forceStopSource(sourceId) {
   }
 }
 
-function stopPlaying(sourceId, { force = false } = {}) {
+function stopPlaying(sourceId, { force = false, track = true } = {}) {
   const note = pressedSources.get(sourceId);
   if (!note) {
     return;
@@ -824,22 +1289,22 @@ function stopPlaying(sourceId, { force = false } = {}) {
     return;
   }
 
-  forceStopSource(sourceId);
+  forceStopSource(sourceId, { track });
   updateNowPlaying();
 }
 
-function flushSustainSources() {
+function flushSustainSources({ track = true } = {}) {
   const targets = [...pendingSustainSources];
-  targets.forEach((sourceId) => forceStopSource(sourceId));
+  targets.forEach((sourceId) => forceStopSource(sourceId, { track }));
   updateNowPlaying();
 }
 
-function panicAllNotes(statusMessage = "모든 음을 정지했습니다.") {
-  audioEngine.stopAll();
+function panicAllNotes(statusMessage = "모든 음을 정지했습니다.", { track = false } = {}) {
+  const sources = [...pressedSources.keys()];
+  sources.forEach((sourceId) => {
+    forceStopSource(sourceId, { track });
+  });
   pendingSustainSources.clear();
-  pressedSources.clear();
-  activeNotes.clear();
-  keyElementMap.forEach((_, noteLabel) => markKey(noteLabel, false));
   if (statusMessage) {
     ui.audioStatus.textContent = statusMessage;
   }
@@ -907,7 +1372,7 @@ function playPreview() {
     return;
   }
   const previewId = "preview";
-  startPlaying(previewId, previewNote);
+  startPlaying(previewId, previewNote, { track: false });
   window.setTimeout(() => stopPlaying(previewId, { force: true }), 320);
 }
 
@@ -936,10 +1401,32 @@ function handleKeyboardDown(event) {
   if (event.code === "Escape") {
     event.preventDefault();
     panicAllNotes("긴급 정지: 모든 음을 정지했습니다.");
+    setLoopEnabled(false);
+    if (state.recordingActive) {
+      stopRecording();
+    }
     return;
   }
 
   if (isTypingBlockedByInput()) {
+    return;
+  }
+
+  if (event.code === "KeyR") {
+    event.preventDefault();
+    toggleRecording();
+    return;
+  }
+
+  if (event.code === "KeyL") {
+    event.preventDefault();
+    toggleLoop();
+    return;
+  }
+
+  if (event.code === "KeyM") {
+    event.preventDefault();
+    toggleMetronome();
     return;
   }
 
@@ -1009,18 +1496,28 @@ function wireEvents() {
   });
   ui.volumeSlider.addEventListener("input", () => updateVolume());
   ui.volumeSlider.addEventListener("change", () => updateVolume({ persist: true }));
+  ui.bpmSlider.addEventListener("input", () => updateBpm());
+  ui.bpmSlider.addEventListener("change", () => updateBpm({ persist: true }));
   ui.octaveDown.addEventListener("click", () => shiftOctave(-1));
   ui.octaveUp.addEventListener("click", () => shiftOctave(1));
   ui.sustainToggle.addEventListener("click", toggleSustain);
-  ui.panicButton.addEventListener("click", () => panicAllNotes());
+  ui.panicButton.addEventListener("click", () => {
+    panicAllNotes();
+    setLoopEnabled(false);
+  });
+  ui.recordToggle.addEventListener("click", toggleRecording);
+  ui.loopToggle.addEventListener("click", toggleLoop);
+  ui.clearTake.addEventListener("click", clearTake);
+  ui.metronomeToggle.addEventListener("click", toggleMetronome);
+  ui.midiConnect.addEventListener("click", connectMidi);
   document.addEventListener("keydown", handleKeyboardDown);
   document.addEventListener("keyup", handleKeyboardUp);
   window.addEventListener("blur", () => {
-    panicAllNotes("");
+    panicAllNotes("", { track: state.recordingActive });
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      panicAllNotes("");
+      panicAllNotes("", { track: state.recordingActive });
     }
   });
 
@@ -1039,10 +1536,24 @@ function init() {
   renderKeyboard();
   syncInstrumentState();
   syncSustainState();
+  syncRecorderState();
+  syncLoopState();
+  syncMetronomeState();
+  syncBpmState();
+  updateTakeInfo();
   ui.volumeSlider.value = String(Math.round(state.volume * 100));
   updateVolume();
+  updateBpm();
   updateNowPlaying();
   syncOrientationState();
+  if (state.midiSupported) {
+    updateMidiStatus("MIDI 미연결");
+    ui.midiConnect.textContent = "MIDI 연결";
+  } else {
+    updateMidiStatus("Web MIDI 미지원 브라우저");
+    ui.midiConnect.disabled = true;
+    ui.midiConnect.textContent = "MIDI 미지원";
+  }
   wireEvents();
 }
 

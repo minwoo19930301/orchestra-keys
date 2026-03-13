@@ -274,7 +274,8 @@ button {
   transition: opacity 180ms ease;
 }
 
-.instrument-card[aria-selected="true"] {
+.instrument-card[aria-selected="true"],
+.instrument-card[aria-checked="true"] {
   border-color: color-mix(in srgb, var(--accent) 70%, white 12%);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   background:
@@ -282,7 +283,8 @@ button {
     rgba(255, 255, 255, 0.045);
 }
 
-.instrument-card[aria-selected="true"]::after {
+.instrument-card[aria-selected="true"]::after,
+.instrument-card[aria-checked="true"]::after {
   opacity: 1;
 }
 
@@ -332,10 +334,21 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.mini-button--toggle.is-on {
+.action-row--stack {
+  grid-template-columns: 1fr;
+}
+
+.mini-button--toggle.is-on,
+.mini-button.is-on {
   color: #0d1323;
   border-color: transparent;
   background: linear-gradient(135deg, var(--accent), #ffd792);
+}
+
+.mini-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
 }
 
 .range-row {
@@ -343,6 +356,15 @@ button {
   gap: 16px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.range-row--compact {
+  gap: 12px;
+}
+
+.range-row--compact strong {
+  min-width: 78px;
+  text-align: right;
 }
 
 input[type="range"] {
