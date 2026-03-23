@@ -415,10 +415,35 @@ input[type="range"] {
   border: 1px solid rgba(255, 255, 255, 0.08);
   font-weight: 700;
   touch-action: none;
+  transform-origin: top center;
+  transition:
+    transform 110ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 120ms ease,
+    background 120ms ease,
+    filter 120ms ease;
+  overflow: hidden;
 }
 
 .key span {
   pointer-events: none;
+}
+
+.key::before,
+.key::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.key::before {
+  opacity: 0.7;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.key::after {
+  opacity: 0;
+  transition: opacity 140ms ease;
 }
 
 .key--white {
@@ -430,7 +455,18 @@ input[type="range"] {
     linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(239, 241, 247, 0.97) 64%, rgba(217, 222, 235, 1) 100%);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.55),
-    inset 0 -8px 18px rgba(33, 39, 58, 0.16);
+    inset 0 -8px 18px rgba(33, 39, 58, 0.16),
+    0 14px 24px rgba(6, 10, 18, 0.18);
+}
+
+.key--white::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 22%);
+}
+
+.key--white::after {
+  background:
+    radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 26%, white), transparent 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 30%);
 }
 
 .key--black {
@@ -447,6 +483,14 @@ input[type="range"] {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.08),
     0 14px 18px rgba(0, 0, 0, 0.36);
+}
+
+.key--black::before {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 24%);
+}
+
+.key--black::after {
+  background: radial-gradient(circle at 50% 20%, color-mix(in srgb, var(--accent) 34%, white), transparent 42%);
 }
 
 .key__note {
@@ -473,23 +517,59 @@ input[type="range"] {
 }
 
 .key.is-active {
-  transform: translateY(8px);
+  filter: saturate(1.04);
+}
+
+.key.is-hit::after {
+  opacity: 0.95;
+  animation: key-hit 180ms ease-out;
 }
 
 .key--white.is-active {
+  transform: translateY(10px) scaleY(0.985);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 22%, white) 0%, color-mix(in srgb, var(--accent) 32%, white) 62%, color-mix(in srgb, var(--accent) 16%, #dce2ef) 100%);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.62),
+    inset 0 -12px 18px rgba(8, 12, 24, 0.18),
+    0 6px 10px rgba(6, 10, 18, 0.12),
     0 0 24px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
+.key--white.is-active::before {
+  opacity: 0.35;
+  transform: translateY(8px);
+}
+
 .key--black.is-active {
+  transform: translateY(8px) scaleY(0.97);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 42%, #7c87b9), color-mix(in srgb, var(--accent) 24%, #111421) 56%, #05070d 100%);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.34),
+    0 6px 10px rgba(0, 0, 0, 0.22),
     0 0 22px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.key--black.is-active::before {
+  opacity: 0.24;
+  transform: translateY(6px);
+}
+
+@keyframes key-hit {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  35% {
+    opacity: 0.95;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
 }
 
 .portrait-overlay {

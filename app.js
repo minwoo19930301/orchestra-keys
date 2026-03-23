@@ -1217,6 +1217,11 @@ function markKey(noteLabel, active) {
   const key = keyElementMap.get(noteLabel);
   if (key) {
     key.classList.toggle("is-active", active);
+    if (active) {
+      key.classList.remove("is-hit");
+      void key.offsetWidth;
+      key.classList.add("is-hit");
+    }
   }
 }
 
