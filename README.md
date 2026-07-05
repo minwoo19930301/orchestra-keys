@@ -1,65 +1,17 @@
-# Stage Keys
+# Stage Keys - Simple Web Keyboard
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://minwoo19930301.github.io/orchestra-keys/)
 
-
-브라우저에서 바로 연주할 수 있는 멀티 악기 키보드 웹앱입니다.
+브라우저에서 바로 아름다운 피아노 톤을 연주할 수 있는 모던하고 미니멀한 웹 키보드입니다.
 
 ## Links
 
-- Live site: [Stage Keys](https://minwoo19930301.github.io/orchestra-keys/)
-- GitHub: [minwoo19930301/orchestra-keys](https://github.com/minwoo19930301/orchestra-keys)
+- **Live site:** [Stage Keys](https://minwoo19930301.github.io/orchestra-keys/)
+- **GitHub:** [minwoo19930301/orchestra-keys](https://github.com/minwoo19930301/orchestra-keys)
 
 ## Features
 
-- 8 instruments: piano, trumpet, violin, organ, flute, saxophone, guitar, xylophone
-- Web Audio 기반 실시간 합성
-- 데스크톱 키보드 단축키와 터치 입력 지원
-- 터치 슬라이드 글리산도 지원 (모바일)
-- Sustain 토글 / All Notes Off(긴급 정지) 지원
-- 브라우저 내 녹음/루프(테이크 저장) 지원
-- 메트로놈(BPM 조절) 지원
-- Web MIDI 입력 장치 연결 지원
-- 모바일 세로 화면에서 가로 모드 전환 유도
-- 모바일 가로 화면 전용 레이아웃
-- 악기/볼륨/옥타브/서스테인/BPM 설정 로컬 저장
-- 웹 앱 설치용 `manifest.webmanifest` 포함
-
-## How To Use
-
-1. 사이트를 열고 `소리 켜고 시작` 버튼을 눌러 오디오를 활성화합니다.
-2. 악기 랙에서 원하는 악기를 선택합니다.
-3. 데스크톱에서는 키보드, 모바일에서는 터치로 연주합니다.
-4. 볼륨, 옥타브, 서스테인, BPM을 필요에 맞게 조정합니다.
-5. 필요하면 `Record`로 테이크를 녹음하고 `Loop`로 반복 재생합니다.
-6. Web MIDI를 지원하는 브라우저에서는 `MIDI 연결`로 외부 장치도 붙일 수 있습니다.
-
-## Controls
-
-- 건반 단축키: `A W S E D F T G Y H U J K O L P ; '`
-- `Space`: Sustain 토글
-- `Esc`: All Notes Off
-- 화면 버튼: Record, Loop, Metronome, MIDI 연결
-- 모바일: 가로 모드 전환 시도 버튼 제공
-
-## Run
-
-정적 파일만으로 구성되어 있어서 아무 HTTP 서버로도 실행할 수 있습니다.
-
-```bash
-python3 -m http.server 4173 --bind 127.0.0.1 --directory "/Users/minwokim/Documents/New project/orchestra-keys"
-```
-
-브라우저: `http://127.0.0.1:4173`
-
-## Deploy
-
-- GitHub Pages: [https://minwoo19930301.github.io/orchestra-keys/](https://minwoo19930301.github.io/orchestra-keys/)
-- 정적 파일 배포라 별도 빌드 단계 없이 배포 가능
-
-## Files
-
-- `index.html`: UI 마크업과 컨트롤 패널
-- `app.js`: 악기 프리셋, Web Audio 합성, 녹음/루프/메트로놈/MIDI 로직
-- `styles.css`: 스테이지 스타일
-- `manifest.webmanifest`: 모바일 설치 및 가로 모드 설정
+- **클릭 노이즈 없는 사운드**: ADSR 가드 엠프 셸을 탑재하여 틱 소리가 나지 않고 부드러운 잔향이 유지되는 피아노 톤 합성
+- **극강의 미니멀리즘**: 악기 랙과 지저분한 레코더를 걷어내고, 오직 아름다운 건반 인터페이스에 집중
+- **멀티 연주 키 맵핑**: 컴퓨터 키보드의 `A S D F G H J K L ; '` 및 `W E T Y U O P` 자판을 사용한 동시 화음 연주 지원
+- **터치/모바일 반응형 최적화**: 모바일 가로 화면 및 멀티 터치 최적화 지원
