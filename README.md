@@ -1,5 +1,8 @@
 # Stage Keys
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://minwoo19930301.github.io/orchestra-keys/)
+
+
 브라우저에서 바로 연주할 수 있는 멀티 악기 키보드 웹앱입니다.
 
 ## Links
