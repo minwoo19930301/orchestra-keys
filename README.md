@@ -1,5 +1,11 @@
 # Stage Keys - Simple Web Keyboard
 
+<!-- PROJECT-PRESENTATION:START -->
+<a href="https://minwoo19930301.github.io/orchestra-keys/"><img src=".github/project-cover.svg" alt="Stage Keys - Simple Web Keyboard" width="960"></a>
+
+[![OPEN APP](https://img.shields.io/badge/OPEN%20APP-2C6049?style=for-the-badge)](https://minwoo19930301.github.io/orchestra-keys/) [![SOURCE](https://img.shields.io/badge/SOURCE-444444?style=for-the-badge)](https://github.com/minwoo19930301/orchestra-keys)
+<!-- PROJECT-PRESENTATION:END -->
+
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-brightgreen?style=for-the-badge&logo=github)](https://minwoo19930301.github.io/orchestra-keys/)
 
 브라우저에서 바로 아름다운 피아노 톤을 연주할 수 있는 모던하고 미니멀한 웹 키보드입니다.
